@@ -9,6 +9,7 @@ export type ClawdGame = {
   y: number
   vy: number
   speed: number
+  throttle: number
   score: number
   dist: number
   obstacles: ClawdObstacle[]

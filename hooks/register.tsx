@@ -5,7 +5,7 @@ import type { ClawdGame } from '../types'
 
 const BEST = 'best'
 const MODES = ['auto', 'play', 'paused', 'over']
-const NUMBERS = ['time', 'idleMs', 'y', 'vy', 'speed', 'score', 'dist', 'nextGap', 'best', 'seed'] as const
+const NUMBERS = ['time', 'idleMs', 'y', 'vy', 'speed', 'throttle', 'score', 'dist', 'nextGap', 'best', 'seed'] as const
 
 // The game as the band last showed it this session, so the next turn picks it up.
 const saved = atom({ plugin: 'clawd-dino', key: 'game' } as const, null)

@@ -1,6 +1,6 @@
 {
   "name": "clawd-dino",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The Chrome dino game, starring Clawd, above the prompt while Claude is working",
   "types": "./types/index.d.ts"
 }

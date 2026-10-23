@@ -16,6 +16,7 @@ Answer `y` to add the marketplace, then press Enter to install it for your user.
 ## Play
 
 - Clawd plays on autopilot until you click the strip. Then space or ↑ jumps and ↓ drops faster.
+- Hold → or `d` to speed up, ← or `a` to slow down, mid-jump too. Faster scores faster.
 - Esc gives the keys back to the prompt. (Pressed while the game isn't focused, Esc interrupts Claude as usual.)
 - A game you leave mid-run comes back paused the next time Claude works. Your high score is saved.
 

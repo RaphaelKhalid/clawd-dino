@@ -27,6 +27,12 @@ const FIRST_SPAWN_MS = 600
 const IDLE_TO_AUTO_MS = 5000
 const RETRY_LOCK_MS = 300
 const SAVE_EVERY_MS = 100
+// Holding d/→ or a/← arrives as key repeats: each one nudges the throttle,
+// which eases back to 0 once they stop. At +1 the world runs 1.7x, at -1 0.5x.
+const THROTTLE_STEP = 0.35
+const THROTTLE_DECAY = 1.6
+const BOOST = 0.7
+const BRAKE = 0.5
 
 const CLAWD = [' ▐▛███▜▌', '▝▜█████▛▘']
 const LEGS = ['  ▘▘ ▝▝', '  ▝▝ ▘▘']
@@ -37,6 +43,7 @@ const CACTI = [
 ]
 
 const widthOf = (o: Obstacle) => CACTI[o.kind]!.rows[0]!.length
+const pace = (g: Game) => g.speed * (g.throttle >= 0 ? 1 + BOOST * g.throttle : 1 + BRAKE * g.throttle)
 const copy = (g: Game): Game => ({ ...g, obstacles: g.obstacles.map(o => ({ ...o })) })
 
 function rand(g: Game): number {
@@ -52,6 +59,7 @@ export function fresh(mode: Mode, best: number, seed: number): Game {
     y: 0,
     vy: 0,
     speed: START_SPEED,
+    throttle: 0,
     score: 0,
     dist: 0,
     obstacles: [],
@@ -67,6 +75,7 @@ export function resumed(saved: Game | null, best: number, seed: number): Game {
   const g = copy(saved)
   g.best = Math.max(g.best, best)
   if (g.mode === 'play') g.mode = 'paused'
+  g.throttle = 0
 
   return g
 }
@@ -99,20 +108,22 @@ export function step(prev: Game, columns: number): Game {
   }
 
   g.speed = Math.min(MAX_SPEED, g.speed + ACCEL * DT)
-  const move = g.speed * DT
+  g.throttle = Math.sign(g.throttle) * Math.max(0, Math.abs(g.throttle) - THROTTLE_DECAY * DT)
+  const move = pace(g) * DT
   g.score += move * 0.6
   g.dist += move
 
   for (const o of g.obstacles) o.x -= move
   g.obstacles = g.obstacles.filter(o => o.x + widthOf(o) > 0)
 
-  const last = g.obstacles[g.obstacles.length - 1]
-  const due =
-    last === undefined ? g.time > FIRST_SPAWN_MS : columns - (last.x + widthOf(last)) >= g.nextGap
-  if (due) {
+  // nextGap counts down the cells until the next cactus, even once the last has scrolled off.
+  g.nextGap -= move
+  if (g.time > FIRST_SPAWN_MS && g.nextGap <= 0) {
     const kinds = g.speed < 24 ? 2 : 3
-    g.obstacles.push({ x: columns, kind: Math.floor(rand(g) * kinds) })
-    g.nextGap = Math.ceil(g.speed * (AIRTIME + 0.1)) + 4 + Math.floor(rand(g) * g.speed * 0.6)
+    const o = { x: columns, kind: Math.floor(rand(g) * kinds) }
+    g.obstacles.push(o)
+    const fast = Math.max(g.speed, pace(g))
+    g.nextGap = widthOf(o) + Math.ceil(fast * (AIRTIME + 0.1)) + 4 + Math.floor(rand(g) * fast * 0.6)
   }
 
   // The autopilot jumps so the obstacle passes under the top of the arc.
@@ -139,8 +150,18 @@ export function step(prev: Game, columns: number): Game {
   return g
 }
 
-export function press(prev: Game, key: 'jump' | 'down'): Game {
+export type Key = 'jump' | 'down' | 'faster' | 'slower'
+
+export function press(prev: Game, key: Key): Game {
   if (prev.mode === 'over' && prev.idleMs <= RETRY_LOCK_MS) return prev
+  if (key === 'faster' || key === 'slower') {
+    if (prev.mode !== 'play') return prev
+    const g = copy(prev)
+    g.idleMs = 0
+    g.throttle = Math.max(-1, Math.min(1, g.throttle + (key === 'faster' ? THROTTLE_STEP : -THROTTLE_STEP)))
+
+    return g
+  }
   const g =
     prev.mode === 'play' || prev.mode === 'paused' ? copy(prev) : fresh('play', prev.best, prev.seed)
   g.mode = 'play'
@@ -181,6 +202,11 @@ function draw(g: Game, columns: number, { Box, Text }: ClientElements): RenderEl
   const feet = FLOOR - Math.floor(g.y)
   const still = g.y > 0 || g.mode === 'over' || g.mode === 'paused'
   const legs = still ? LEGS[0]! : LEGS[Math.floor(g.time / 110) & 1]!
+  if (g.throttle > 0.2) {
+    const streak = g.throttle > 0.6 ? '═ ══' : '─ ─'
+    put(feet - 1, CX - streak.length, streak, 'claude')
+    put(feet - 2, CX - streak.length + 1, streak.slice(1), 'subtle')
+  }
   put(feet - 2, CX, CLAWD[0]!, body)
   put(feet - 1, CX, CLAWD[1]!, body)
   put(feet, CX, legs, body)
@@ -190,7 +216,7 @@ function draw(g: Game, columns: number, { Box, Text }: ClientElements): RenderEl
 
   const hint = {
     auto: 'autopilot · click here, then space/↑ to play',
-    play: 'space/↑ jump · esc back to prompt',
+    play: 'space jump · ←/→ speed · esc prompt',
     paused: 'click here, then space/↑ to carry on',
     over: '',
   }[g.mode]
@@ -239,7 +265,7 @@ const ClawdDino: ClientModule<Props, Game> = (props, surface) => {
       savedAt = next.time
       surface.post({ game: next })
     }
-    const act = (key: 'jump' | 'down') => {
+    const act = (key: Key) => {
       const cur = surface.state
       if (cur === undefined) return
       const next = press(cur, key)
@@ -259,7 +285,9 @@ const ClawdDino: ClientModule<Props, Game> = (props, surface) => {
     })
     surface.onKey(k => {
       if (k.key === ' ' || k.key === 'space' || k.key === 'up' || k.key === 'w' || k.key === 'return') act('jump')
-      else if (k.key === 'down' || k.key === 's') act('down')
+      else if (k.key === 'down' || k.key === 's' || k.key === 'S') act('down')
+      else if (k.key === 'right' || k.key === 'd' || k.key === 'D') act('faster')
+      else if (k.key === 'left' || k.key === 'a' || k.key === 'A') act('slower')
     })
     surface.onPointer(p => {
       if (p.type === 'down') act('jump')
