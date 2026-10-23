@@ -1,0 +1,5 @@
+{
+  "name": "clawd-dino",
+  "owner": { "name": "RaphaelKhalid" },
+  "plugins": [{ "name": "clawd-dino", "source": "./" }]
+}
